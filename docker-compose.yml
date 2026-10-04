@@ -1,30 +1,14 @@
+# Runs the API only. The database is an external PostgreSQL server;
+# set DATABASE_URL in .env, e.g.
+#   DATABASE_URL=postgresql+psycopg://USER:PASSWORD@192.168.2.94:5432/webapp
+# (the .env file is not committed - keep passwords out of git)
+#
+# Port 80 on this server -> API (8000 inside the container).
+# The firewall forwards smartfinance.az:42420 -> 192.168.2.93:80.
 services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: webuser
-      POSTGRES_PASSWORD: 123456
-      POSTGRES_DB: webapp
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U loan -d loan_api"]
-      interval: 5s
-      retries: 10
-
   api:
     build: .
+    restart: unless-stopped
     env_file: .env
-    environment:
-      DATABASE_URL: postgresql+psycopg://webuser:123456@192.168.294:5432/webapp
     ports:
-      - "42420:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-
-volumes:
-  pgdata:
+      - "80:8000"
