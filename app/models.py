@@ -26,9 +26,9 @@ MONEY = Numeric(14, 2)
 RATE = Numeric(5, 2)
 
 # Human-readable numbers (contract no, application / payment references).
-contract_no_seq = Sequence("contract_no_seq", metadata=Base.metadata)
-application_ref_seq = Sequence("application_ref_seq", metadata=Base.metadata)
-payment_ref_seq = Sequence("payment_ref_seq", metadata=Base.metadata)
+contract_no_seq = Sequence("app_contract_no_seq", metadata=Base.metadata)
+application_ref_seq = Sequence("app_application_ref_seq", metadata=Base.metadata)
+payment_ref_seq = Sequence("app_payment_ref_seq", metadata=Base.metadata)
 
 
 class LoanType(str, enum.Enum):
@@ -66,7 +66,7 @@ class TimestampMixin:
 
 
 class User(TimestampMixin, Base):
-    __tablename__ = "users"
+    __tablename__ = "app_users"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     phone: Mapped[str] = mapped_column(String(20), unique=True, index=True)
@@ -81,7 +81,7 @@ class User(TimestampMixin, Base):
 
 
 class OtpCode(TimestampMixin, Base):
-    __tablename__ = "otp_codes"
+    __tablename__ = "app_otp_codes"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     phone: Mapped[str] = mapped_column(String(20), index=True)
@@ -92,11 +92,11 @@ class OtpCode(TimestampMixin, Base):
 
 
 class RefreshToken(TimestampMixin, Base):
-    __tablename__ = "refresh_tokens"
+    __tablename__ = "app_refresh_tokens"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
+        ForeignKey("app_users.id", ondelete="CASCADE"), index=True
     )
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     device_name: Mapped[str | None] = mapped_column(String(120))
@@ -109,7 +109,7 @@ class RefreshToken(TimestampMixin, Base):
 
 
 class LoanProduct(Base):
-    __tablename__ = "loan_products"
+    __tablename__ = "app_loan_products"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(30), unique=True)
@@ -131,15 +131,15 @@ class LoanProduct(Base):
 
 
 class Loan(TimestampMixin, Base):
-    __tablename__ = "loans"
+    __tablename__ = "app_loans"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+        ForeignKey("app_users.id", ondelete="RESTRICT"), index=True
     )
-    product_id: Mapped[int] = mapped_column(ForeignKey("loan_products.id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("app_loan_products.id"))
     application_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("loan_applications.id"), unique=True
+        ForeignKey("app_loan_applications.id"), unique=True
     )
     type: Mapped[LoanType] = mapped_column(_enum(LoanType))
     product_name_key: Mapped[str] = mapped_column(String(60))
@@ -165,12 +165,12 @@ class Loan(TimestampMixin, Base):
 
 
 class Installment(Base):
-    __tablename__ = "installments"
+    __tablename__ = "app_installments"
     __table_args__ = (UniqueConstraint("loan_id", "number"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     loan_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("loans.id", ondelete="CASCADE"), index=True
+        ForeignKey("app_loans.id", ondelete="CASCADE"), index=True
     )
     number: Mapped[int] = mapped_column(Integer)
     due_date: Mapped[date] = mapped_column(Date)
@@ -191,19 +191,19 @@ class Installment(Base):
 
 
 class Payment(TimestampMixin, Base):
-    __tablename__ = "payments"
+    __tablename__ = "app_payments"
     __table_args__ = (UniqueConstraint("user_id", "idempotency_key"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     reference: Mapped[str] = mapped_column(String(30), unique=True)
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+        ForeignKey("app_users.id", ondelete="RESTRICT"), index=True
     )
     loan_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("loans.id", ondelete="CASCADE"), index=True
+        ForeignKey("app_loans.id", ondelete="CASCADE"), index=True
     )
     installment_id: Mapped[int] = mapped_column(
-        ForeignKey("installments.id", ondelete="CASCADE"), unique=True
+        ForeignKey("app_installments.id", ondelete="CASCADE"), unique=True
     )
     amount: Mapped[Decimal] = mapped_column(MONEY)
     currency: Mapped[str] = mapped_column(String(3))
@@ -215,11 +215,11 @@ class Payment(TimestampMixin, Base):
 
 
 class Document(TimestampMixin, Base):
-    __tablename__ = "documents"
+    __tablename__ = "app_documents"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     loan_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("loans.id", ondelete="CASCADE"), index=True
+        ForeignKey("app_loans.id", ondelete="CASCADE"), index=True
     )
     # Translation key, same as the app: doc.agreement, doc.schedule ...
     name_key: Mapped[str] = mapped_column(String(40))
@@ -236,14 +236,14 @@ class Document(TimestampMixin, Base):
 
 
 class LoanApplication(TimestampMixin, Base):
-    __tablename__ = "loan_applications"
+    __tablename__ = "app_loan_applications"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     reference: Mapped[str] = mapped_column(String(20), unique=True)
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+        ForeignKey("app_users.id", ondelete="RESTRICT"), index=True
     )
-    product_id: Mapped[int] = mapped_column(ForeignKey("loan_products.id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("app_loan_products.id"))
     type: Mapped[LoanType] = mapped_column(_enum(LoanType))
     product_name_key: Mapped[str] = mapped_column(String(60))
     amount: Mapped[Decimal] = mapped_column(MONEY)

@@ -3,6 +3,8 @@
 Revision ID: 0001
 Revises:
 Create Date: 2026-10-03
+
+All tables, indexes and sequences use the app_ prefix.
 """
 from typing import Sequence, Union
 
@@ -16,13 +18,13 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-SEQUENCES = ("contract_no_seq", "application_ref_seq", "payment_ref_seq")
+SEQUENCES = ("app_contract_no_seq", "app_application_ref_seq", "app_payment_ref_seq")
 
 
 def upgrade() -> None:
     for name in SEQUENCES:
         op.execute(sa.schema.CreateSequence(sa.Sequence(name)))
-    op.create_table('loan_products',
+    op.create_table('app_loan_products',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('code', sa.String(length=30), nullable=False),
     sa.Column('type', sa.Enum('consumer', 'car', 'mortgage', 'business', name='loantype', native_enum=False, length=20), nullable=False),
@@ -39,7 +41,7 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('code')
     )
-    op.create_table('otp_codes',
+    op.create_table('app_otp_codes',
     sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
     sa.Column('phone', sa.String(length=20), nullable=False),
     sa.Column('code_hash', sa.String(length=64), nullable=False),
@@ -49,8 +51,8 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_otp_codes_phone'), 'otp_codes', ['phone'], unique=False)
-    op.create_table('users',
+    op.create_index(op.f('ix_app_otp_codes_phone'), 'app_otp_codes', ['phone'], unique=False)
+    op.create_table('app_users',
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('phone', sa.String(length=20), nullable=False),
     sa.Column('full_name', sa.String(length=120), nullable=False),
@@ -60,8 +62,8 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_users_phone'), 'users', ['phone'], unique=True)
-    op.create_table('loan_applications',
+    op.create_index(op.f('ix_app_users_phone'), 'app_users', ['phone'], unique=True)
+    op.create_table('app_loan_applications',
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('reference', sa.String(length=20), nullable=False),
     sa.Column('user_id', sa.Uuid(), nullable=False),
@@ -78,14 +80,14 @@ def upgrade() -> None:
     sa.Column('decision_note', sa.String(length=500), nullable=True),
     sa.Column('decided_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['product_id'], ['loan_products.id'], ),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['product_id'], ['app_loan_products.id'], ),
+    sa.ForeignKeyConstraint(['user_id'], ['app_users.id'], ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('reference')
     )
-    op.create_index(op.f('ix_loan_applications_status'), 'loan_applications', ['status'], unique=False)
-    op.create_index(op.f('ix_loan_applications_user_id'), 'loan_applications', ['user_id'], unique=False)
-    op.create_table('refresh_tokens',
+    op.create_index(op.f('ix_app_loan_applications_status'), 'app_loan_applications', ['status'], unique=False)
+    op.create_index(op.f('ix_app_loan_applications_user_id'), 'app_loan_applications', ['user_id'], unique=False)
+    op.create_table('app_refresh_tokens',
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('user_id', sa.Uuid(), nullable=False),
     sa.Column('token_hash', sa.String(length=64), nullable=False),
@@ -94,12 +96,12 @@ def upgrade() -> None:
     sa.Column('revoked_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('replaced_by', sa.Uuid(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['user_id'], ['app_users.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('token_hash')
     )
-    op.create_index(op.f('ix_refresh_tokens_user_id'), 'refresh_tokens', ['user_id'], unique=False)
-    op.create_table('loans',
+    op.create_index(op.f('ix_app_refresh_tokens_user_id'), 'app_refresh_tokens', ['user_id'], unique=False)
+    op.create_table('app_loans',
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('user_id', sa.Uuid(), nullable=False),
     sa.Column('product_id', sa.Integer(), nullable=False),
@@ -113,15 +115,15 @@ def upgrade() -> None:
     sa.Column('term_months', sa.Integer(), nullable=False),
     sa.Column('start_date', sa.Date(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['application_id'], ['loan_applications.id'], ),
-    sa.ForeignKeyConstraint(['product_id'], ['loan_products.id'], ),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['application_id'], ['app_loan_applications.id'], ),
+    sa.ForeignKeyConstraint(['product_id'], ['app_loan_products.id'], ),
+    sa.ForeignKeyConstraint(['user_id'], ['app_users.id'], ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('application_id'),
     sa.UniqueConstraint('contract_no')
     )
-    op.create_index(op.f('ix_loans_user_id'), 'loans', ['user_id'], unique=False)
-    op.create_table('documents',
+    op.create_index(op.f('ix_app_loans_user_id'), 'app_loans', ['user_id'], unique=False)
+    op.create_table('app_documents',
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('loan_id', sa.Uuid(), nullable=False),
     sa.Column('name_key', sa.String(length=40), nullable=False),
@@ -131,11 +133,11 @@ def upgrade() -> None:
     sa.Column('content', sa.LargeBinary(), nullable=False),
     sa.Column('sort_order', sa.Integer(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['loan_id'], ['loans.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['loan_id'], ['app_loans.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_documents_loan_id'), 'documents', ['loan_id'], unique=False)
-    op.create_table('installments',
+    op.create_index(op.f('ix_app_documents_loan_id'), 'app_documents', ['loan_id'], unique=False)
+    op.create_table('app_installments',
     sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
     sa.Column('loan_id', sa.Uuid(), nullable=False),
     sa.Column('number', sa.Integer(), nullable=False),
@@ -144,12 +146,12 @@ def upgrade() -> None:
     sa.Column('interest', sa.Numeric(precision=14, scale=2), nullable=False),
     sa.Column('balance_after', sa.Numeric(precision=14, scale=2), nullable=False),
     sa.Column('paid_at', sa.DateTime(timezone=True), nullable=True),
-    sa.ForeignKeyConstraint(['loan_id'], ['loans.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['loan_id'], ['app_loans.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('loan_id', 'number')
     )
-    op.create_index(op.f('ix_installments_loan_id'), 'installments', ['loan_id'], unique=False)
-    op.create_table('payments',
+    op.create_index(op.f('ix_app_installments_loan_id'), 'app_installments', ['loan_id'], unique=False)
+    op.create_table('app_payments',
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('reference', sa.String(length=30), nullable=False),
     sa.Column('user_id', sa.Uuid(), nullable=False),
@@ -160,37 +162,37 @@ def upgrade() -> None:
     sa.Column('paid_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('idempotency_key', sa.String(length=80), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['installment_id'], ['installments.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['loan_id'], ['loans.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['installment_id'], ['app_installments.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['loan_id'], ['app_loans.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['user_id'], ['app_users.id'], ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('installment_id'),
     sa.UniqueConstraint('reference'),
     sa.UniqueConstraint('user_id', 'idempotency_key')
     )
-    op.create_index(op.f('ix_payments_loan_id'), 'payments', ['loan_id'], unique=False)
-    op.create_index(op.f('ix_payments_user_id'), 'payments', ['user_id'], unique=False)
+    op.create_index(op.f('ix_app_payments_loan_id'), 'app_payments', ['loan_id'], unique=False)
+    op.create_index(op.f('ix_app_payments_user_id'), 'app_payments', ['user_id'], unique=False)
 
 
 def downgrade() -> None:
-    op.drop_index(op.f('ix_payments_user_id'), table_name='payments')
-    op.drop_index(op.f('ix_payments_loan_id'), table_name='payments')
-    op.drop_table('payments')
-    op.drop_index(op.f('ix_installments_loan_id'), table_name='installments')
-    op.drop_table('installments')
-    op.drop_index(op.f('ix_documents_loan_id'), table_name='documents')
-    op.drop_table('documents')
-    op.drop_index(op.f('ix_loans_user_id'), table_name='loans')
-    op.drop_table('loans')
-    op.drop_index(op.f('ix_refresh_tokens_user_id'), table_name='refresh_tokens')
-    op.drop_table('refresh_tokens')
-    op.drop_index(op.f('ix_loan_applications_user_id'), table_name='loan_applications')
-    op.drop_index(op.f('ix_loan_applications_status'), table_name='loan_applications')
-    op.drop_table('loan_applications')
-    op.drop_index(op.f('ix_users_phone'), table_name='users')
-    op.drop_table('users')
-    op.drop_index(op.f('ix_otp_codes_phone'), table_name='otp_codes')
-    op.drop_table('otp_codes')
-    op.drop_table('loan_products')
+    op.drop_index(op.f('ix_app_payments_user_id'), table_name='app_payments')
+    op.drop_index(op.f('ix_app_payments_loan_id'), table_name='app_payments')
+    op.drop_table('app_payments')
+    op.drop_index(op.f('ix_app_installments_loan_id'), table_name='app_installments')
+    op.drop_table('app_installments')
+    op.drop_index(op.f('ix_app_documents_loan_id'), table_name='app_documents')
+    op.drop_table('app_documents')
+    op.drop_index(op.f('ix_app_loans_user_id'), table_name='app_loans')
+    op.drop_table('app_loans')
+    op.drop_index(op.f('ix_app_refresh_tokens_user_id'), table_name='app_refresh_tokens')
+    op.drop_table('app_refresh_tokens')
+    op.drop_index(op.f('ix_app_loan_applications_user_id'), table_name='app_loan_applications')
+    op.drop_index(op.f('ix_app_loan_applications_status'), table_name='app_loan_applications')
+    op.drop_table('app_loan_applications')
+    op.drop_index(op.f('ix_app_users_phone'), table_name='app_users')
+    op.drop_table('app_users')
+    op.drop_index(op.f('ix_app_otp_codes_phone'), table_name='app_otp_codes')
+    op.drop_table('app_otp_codes')
+    op.drop_table('app_loan_products')
     for name in SEQUENCES:
         op.execute(sa.schema.DropSequence(sa.Sequence(name)))
