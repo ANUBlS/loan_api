@@ -6,5 +6,7 @@ alembic>=1.13
 pydantic>=2.7
 pydantic-settings>=2.4
 pyjwt>=2.9
+# File uploads in the admin API (multipart/form-data)
+python-multipart>=0.0.9
 # Time zone database (needed on Windows for Asia/Baku)
 tzdata>=2024.1

@@ -36,8 +36,15 @@ class Settings(BaseSettings):
     # gateway. Never enable in production.
     expose_otp_in_response: bool = True
 
-    # Back-office endpoints (/api/v1/admin/*) require header X-Admin-Key
+    # Back-office endpoints (/api/v1/admin/*): admin panel login (Bearer token)
+    # or, for scripts, header X-Admin-Key.
     admin_api_key: str = "change-me-admin"
+    admin_token_minutes: int = 480          # admin panel session (8 hours)
+    admin_max_failed_logins: int = 5
+    admin_lock_minutes: int = 15
+    admin_min_password_length: int = 10
+    # Largest document an admin can upload (stored in the database)
+    max_upload_mb: int = 15
 
     # Business
     timezone: str = "Asia/Baku"

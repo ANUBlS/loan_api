@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     Numeric,
@@ -18,6 +19,8 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -36,6 +39,19 @@ class LoanType(str, enum.Enum):
     car = "car"
     mortgage = "mortgage"
     business = "business"
+
+
+class PaymentMethod(str, enum.Enum):
+    app = "app"                    # paid by the customer in the mobile app
+    cash = "cash"                  # recorded by an operator in the admin panel
+    bank_transfer = "bank_transfer"
+    card = "card"
+
+
+class AdminRole(str, enum.Enum):
+    admin = "admin"        # everything, incl. admin users, products, deletes, reversals
+    operator = "operator"  # customers, loans, schedules, payments, documents, applications
+    viewer = "viewer"      # read only
 
 
 class ApplicationStatus(str, enum.Enum):
@@ -192,7 +208,16 @@ class Installment(Base):
 
 class Payment(TimestampMixin, Base):
     __tablename__ = "app_payments"
-    __table_args__ = (UniqueConstraint("user_id", "idempotency_key"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "idempotency_key"),
+        # One live payment per installment; a reversed payment frees the installment.
+        Index(
+            "uq_app_payments_installment_live",
+            "installment_id",
+            unique=True,
+            postgresql_where=text("reversed_at IS NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     reference: Mapped[str] = mapped_column(String(30), unique=True)
@@ -203,12 +228,24 @@ class Payment(TimestampMixin, Base):
         ForeignKey("app_loans.id", ondelete="CASCADE"), index=True
     )
     installment_id: Mapped[int] = mapped_column(
-        ForeignKey("app_installments.id", ondelete="CASCADE"), unique=True
+        ForeignKey("app_installments.id", ondelete="CASCADE"), index=True
     )
     amount: Mapped[Decimal] = mapped_column(MONEY)
     currency: Mapped[str] = mapped_column(String(3))
     paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     idempotency_key: Mapped[str | None] = mapped_column(String(80))
+    method: Mapped[PaymentMethod] = mapped_column(
+        _enum(PaymentMethod), default=PaymentMethod.app, server_default="app"
+    )
+    note: Mapped[str | None] = mapped_column(String(500))
+    created_by_admin_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("app_admin_users.id", ondelete="SET NULL")
+    )
+    reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reversed_by_admin_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("app_admin_users.id", ondelete="SET NULL")
+    )
+    reversal_reason: Mapped[str | None] = mapped_column(String(500))
 
     loan: Mapped[Loan] = relationship()
     installment: Mapped[Installment] = relationship()
@@ -264,4 +301,49 @@ class LoanApplication(TimestampMixin, Base):
         primaryjoin="Loan.application_id == LoanApplication.id",
         viewonly=True,
         uselist=False,
+    )
+
+
+# -------------------------------------------------------------- back office
+
+
+class AdminUser(TimestampMixin, Base):
+    """Back-office (admin panel) accounts. Separate from app customers."""
+
+    __tablename__ = "app_admin_users"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    username: Mapped[str] = mapped_column(String(60), unique=True, index=True)
+    full_name: Mapped[str] = mapped_column(String(120))
+    role: Mapped[AdminRole] = mapped_column(_enum(AdminRole))
+    password_hash: Mapped[str] = mapped_column(String(200))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Bumped on password reset / deactivation: invalidates issued admin tokens.
+    token_version: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class AuditLog(Base):
+    """Who changed what in the admin panel."""
+
+    __tablename__ = "app_audit_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    admin_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("app_admin_users.id", ondelete="SET NULL"), index=True
+    )
+    admin_username: Mapped[str] = mapped_column(String(60))
+    action: Mapped[str] = mapped_column(String(60), index=True)
+    entity: Mapped[str] = mapped_column(String(40))
+    entity_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    details: Mapped[dict | None] = mapped_column(JSONB)
+    ip: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
     )

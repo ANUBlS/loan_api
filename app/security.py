@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import hmac
 import re
@@ -90,3 +91,68 @@ def decode_access_token(token: str) -> uuid.UUID:
 
 def generate_refresh_token() -> str:
     return secrets.token_urlsafe(48)
+
+
+# ------------------------------------------------------------ admin panel
+
+_PBKDF2_ITERATIONS = 600_000
+
+
+def hash_password(password: str) -> str:
+    """PBKDF2-SHA256 (600k iterations, random salt): pbkdf2_sha256$iter$salt$hash"""
+    salt = secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _PBKDF2_ITERATIONS)
+    b64 = lambda b: base64.b64encode(b).decode()  # noqa: E731
+    return f"pbkdf2_sha256${_PBKDF2_ITERATIONS}${b64(salt)}${b64(dk)}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        algo, iterations, salt_b64, hash_b64 = stored.split("$")
+        if algo != "pbkdf2_sha256":
+            return False
+        dk = hashlib.pbkdf2_hmac(
+            "sha256", password.encode(), base64.b64decode(salt_b64), int(iterations)
+        )
+        return hmac.compare_digest(dk, base64.b64decode(hash_b64))
+    except (ValueError, TypeError):
+        return False
+
+
+def create_admin_token(admin_id: uuid.UUID, role: str, token_version: int) -> tuple[str, int]:
+    now = now_utc()
+    ttl = timedelta(minutes=settings.admin_token_minutes)
+    payload = {
+        "sub": str(admin_id),
+        "type": "admin",
+        "role": role,
+        "ver": token_version,
+        "iat": int(now.timestamp()),
+        "exp": int((now + ttl).timestamp()),
+        "jti": uuid.uuid4().hex,
+    }
+    token = jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    return token, int(ttl.total_seconds())
+
+
+def decode_admin_token(token: str) -> tuple[uuid.UUID, int]:
+    """Returns (admin_id, token_version)."""
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[settings.jwt_algorithm],
+            options={"require": ["exp", "sub", "type"]},
+        )
+    except jwt.ExpiredSignatureError:
+        raise ApiError(401, "token_expired", "Session expired, sign in again",
+                       headers={"WWW-Authenticate": "Bearer"})
+    except jwt.InvalidTokenError:
+        raise ApiError(401, "token_invalid", "Invalid token",
+                       headers={"WWW-Authenticate": "Bearer"})
+    if payload.get("type") != "admin":
+        raise ApiError(401, "token_invalid", "Not an admin token")
+    try:
+        return uuid.UUID(payload["sub"]), int(payload.get("ver", 0))
+    except (ValueError, TypeError):
+        raise ApiError(401, "token_invalid", "Invalid token")

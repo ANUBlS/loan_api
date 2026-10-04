@@ -79,8 +79,23 @@ def _body(key: str, loan: Loan, user: User) -> list[str]:
     return head + ["Generated electronically."]
 
 
-def generate_for_loan(db: Session, loan: Loan, user: User) -> None:
+STANDARD_KEYS = {k for k, _, _ in DOCUMENT_KEYS}
+
+
+def regenerate(db: Session, loan: Loan, user: User, keys: set[str] | None = None) -> None:
+    """Rebuilds the generated PDFs (all, or only `keys`). Uploaded documents stay."""
+    keys = (keys or STANDARD_KEYS) & STANDARD_KEYS
+    for doc in db.scalars(select(Document).where(
+            Document.loan_id == loan.id, Document.name_key.in_(keys))):
+        db.delete(doc)
+    db.flush()
+    generate_for_loan(db, loan, user, keys)
+
+
+def generate_for_loan(db: Session, loan: Loan, user: User, keys: set[str] | None = None) -> None:
     for order, (key, slug, title) in enumerate(DOCUMENT_KEYS):
+        if keys is not None and key not in keys:
+            continue
         content = build_pdf(title, _body(key, loan, user))
         db.add(Document(
             loan_id=loan.id,

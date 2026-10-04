@@ -162,6 +162,7 @@ def test_application_validation_and_cancel(client, new_user):
 
 
 def test_admin_requires_key(client):
-    assert client.get("/api/v1/admin/applications").status_code == 403
+    # No credentials: sign in first (401). Wrong key: forbidden (403).
+    assert client.get("/api/v1/admin/applications").status_code == 401
     assert client.get("/api/v1/admin/applications",
                       headers={"X-Admin-Key": "wrong"}).status_code == 403

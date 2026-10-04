@@ -89,10 +89,8 @@ returned as `debugCode`. Phone numbers are normalized to `+994XXXXXXXXX`
 | GET | `/applications?status=` | Bearer | My applications |
 | GET | `/applications/{id}` | Bearer | One application |
 | POST | `/applications/{id}/cancel` | Bearer | Withdraw while under review |
-| GET | `/admin/applications?status=` | X-Admin-Key | Review queue |
-| POST | `/admin/applications/{id}/approve` | X-Admin-Key | Creates the loan (schedule + documents) |
-| POST | `/admin/applications/{id}/reject` | X-Admin-Key | Reject with reason |
 | GET | `/health` | – | Liveness + DB check |
+| * | `/admin/...` | Admin login | Back office — see **Admin panel API** below |
 
 ### Loan object (`GET /loans`, `GET /loans/{id}`)
 
@@ -156,6 +154,58 @@ Every error has the same shape; map `code` to a translation key in the app.
 | 422 | `validation_error` (details.fields), `phone_invalid`, `full_name_required`, `amount_out_of_range`, `amount_step`, `term_out_of_range`, `purpose_invalid` |
 | 429 | `otp_too_soon` (details.retryAfter, header Retry-After), `otp_rate_limited` |
 
+## Admin panel API
+
+Used by the React admin panel (github.com/ANUBlS/loan_admin). Base path `/api/v1/admin`.
+
+**First admin account** (once, on the server):
+
+```bash
+docker compose exec api python -m scripts.create_admin --username admin --name "Main Admin" --role admin
+# forgot the password / account locked:
+docker compose exec api python -m scripts.create_admin --username admin --reset
+```
+
+Sign in with `POST /admin/auth/login {"username","password"}` → `{accessToken, expiresIn, admin}` and
+send `Authorization: Bearer <accessToken>` (8 hours). 5 wrong passwords lock the account for 15 minutes.
+Passwords: 10+ characters with letters and digits, stored as PBKDF2-SHA256.
+Scripts can still call the admin API with `X-Admin-Key` (acts as role `admin`).
+
+| Role | Can do |
+|---|---|
+| `viewer` | Read everything (dashboard, customers, loans, payments, documents, applications) |
+| `operator` | + create/edit customers, block/unblock, reset app access, create/edit loans, edit schedule, restructure, record payments, upload/replace/delete documents, approve/reject applications |
+| `admin` | + admin users, products, delete loans, reverse payments, audit log |
+
+| Method | Path | Role | Purpose |
+|---|---|---|---|
+| POST | `/admin/auth/login` | – | Sign in |
+| GET | `/admin/auth/me` · POST `/admin/auth/change-password` | any | Own account |
+| GET/POST | `/admin/admin-users` · PATCH `/{id}` · POST `/{id}/reset-password` | admin | Admin accounts |
+| GET | `/admin/dashboard` | viewer | Totals, overdue, collections by month |
+| GET · POST/PATCH | `/admin/products` | viewer · admin | Loan products |
+| GET/POST | `/admin/customers?q&status` | viewer/operator | List (search name/phone) / create |
+| GET/PATCH | `/admin/customers/{id}` | viewer/operator | Customer |
+| POST | `/admin/customers/{id}/block` · `/unblock` | operator | Block signs out all devices |
+| POST | `/admin/customers/{id}/reset-access` | operator | "Password reset": signs out all devices, clears SMS-code limits; next login → SMS code + new PIN |
+| GET/POST | `/admin/loans?q&state&userId` | viewer/operator | `state`: open, overdue, active, closed |
+| GET/PATCH/DELETE | `/admin/loans/{id}` | viewer/operator/admin | Terms change only without payments (schedule + PDFs rebuilt) |
+| PATCH | `/admin/loans/{id}/installments/{number}` | operator | Edit unpaid installment (due date, principal, interest) |
+| POST | `/admin/loans/{id}/restructure` | operator | New annuity for the unpaid part (rate, count, first due date) |
+| GET/POST | `/admin/payments?q&loanId&userId&method&from&to` | viewer/operator | Record cash / bank transfer / card payment for the next N installments |
+| POST | `/admin/payments/{id}/reverse` | admin | Latest payment of a loan only; installment becomes unpaid |
+| GET/POST | `/admin/loans/{id}/documents` | viewer/operator | List / upload (multipart `file`, `nameKey`) |
+| PUT · PATCH · DELETE | `/admin/documents/{id}/file` · `/admin/documents/{id}` | operator | Replace file / rename / delete |
+| GET | `/admin/documents/{id}/download?inline=true` | viewer | File |
+| POST | `/admin/loans/{id}/documents/regenerate` | operator | Rebuild the 6 generated PDFs |
+| GET | `/admin/applications?status=` · POST `/{id}/approve` · `/{id}/reject` | viewer/operator | Review queue |
+| GET | `/admin/audit?entity&entityId&adminId&action` | admin | Who changed what |
+
+Documents are stored in the database (`app_documents.content`), max `MAX_UPLOAD_MB` (default 15) per file:
+PDF, JPG, PNG, WEBP, DOC, DOCX (type checked from the file content). Uploaded documents appear in the app
+next to the generated ones. Installments are always paid in order, so only a loan's latest payment can be
+reversed. Payments reversed in the panel are hidden from the app's payment history.
+
 ## Connecting the Flutter app
 
 All screens already read from `LoanRepository`, so only the data layer changes:
@@ -187,7 +237,8 @@ app/
   errors.py          uniform error responses
   security.py        phone normalization, OTP hashing, JWT
   deps.py            current user / admin key dependencies
-  routers/           one file per resource
+  routers/           one file per resource (admin.py = admin panel API)
+  admin_schemas.py   admin panel request/response models
   services/
     auth.py          OTP, tokens, refresh rotation
     loans.py         loan read model, creation, payments
@@ -196,6 +247,9 @@ app/
     documents.py     PDF document pack per loan
     pdf.py           tiny PDF writer
     sms.py           SMS sender (console in dev — plug your provider here)
+    backoffice.py    admin panel: customers, loans, schedule, payments, documents, audit
+    admin_accounts.py admin logins, lockout, password rules
+scripts/create_admin.py  first admin account / password reset
 alembic/             migrations
 scripts/seed.py      products + demo customer
 tests/               pytest suite
@@ -204,6 +258,7 @@ tests/               pytest suite
 ## Before production
 
 - `ENVIRONMENT=production`, long random `JWT_SECRET`, `OTP_SECRET`, `ADMIN_API_KEY` (the app refuses to start otherwise) and `EXPOSE_OTP_IN_RESPONSE=false`.
+- Keep the admin panel on the internal network only (don't port-forward it), and set `CORS_ORIGINS` to the panel's address.
 - Implement a real `SmsSender` in `app/services/sms.py` and register it with `set_sender()` at startup.
 - Restrict `CORS_ORIGINS`, run behind HTTPS (nginx), back up PostgreSQL.
 - Replace the mock payment in `POST /loans/{id}/payments` with your payment provider when needed.

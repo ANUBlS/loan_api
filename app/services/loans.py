@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from .. import schemas
 from ..config import settings
 from ..errors import ApiError
-from ..models import Installment, Loan, LoanProduct, Payment, User
+from ..models import Installment, Loan, LoanProduct, Payment, PaymentMethod, User
 from ..timeutils import now_utc, today
 from . import documents, loan_math
 from .numbering import next_contract_no, next_payment_ref
@@ -198,6 +198,8 @@ def payment_out(p: Payment) -> schemas.PaymentOut:
 def record_payment(
     db: Session, user: User, loan: Loan, inst: Installment,
     paid_at=None, idempotency_key: str | None = None,
+    method: PaymentMethod = PaymentMethod.app, note: str | None = None,
+    admin_id: uuid.UUID | None = None,
 ) -> Payment:
     paid_at = paid_at or now_utc()
     inst.paid_at = paid_at
@@ -210,6 +212,9 @@ def record_payment(
         currency=loan.currency,
         paid_at=paid_at,
         idempotency_key=idempotency_key,
+        method=method,
+        note=note,
+        created_by_admin_id=admin_id,
     )
     db.add(payment)
     return payment
@@ -275,7 +280,7 @@ def pay_next(
 def payment_history(
     db: Session, user: User, limit: int, offset: int, loan_id: uuid.UUID | None
 ) -> schemas.PaymentPageOut:
-    where = [Payment.user_id == user.id]
+    where = [Payment.user_id == user.id, Payment.reversed_at.is_(None)]
     if loan_id:
         where.append(Payment.loan_id == loan_id)
     total = db.scalar(select(func.count()).select_from(Payment).where(*where)) or 0
