@@ -2,9 +2,9 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: loan
-      POSTGRES_PASSWORD: loan
-      POSTGRES_DB: loan_api
+      POSTGRES_USER: webuser
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: webapp
     ports:
       - "5432:5432"
     volumes:
@@ -19,9 +19,9 @@ services:
     build: .
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg://loan:loan@db:5432/loan_api
+      DATABASE_URL: postgresql+psycopg://webuser:123456@192.168.294:5432/webapp
     ports:
-      - "8000:8000"
+      - "42420:8000"
     depends_on:
       db:
         condition: service_healthy
